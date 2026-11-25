@@ -87,6 +87,16 @@ Invariant test modules live in `src/` alongside the contract code. A file in
 undeclared file is never compiled, whatever attributes it carries, so its
 tests never run.
 
+### Formal specification
+
+[`docs/FIATBRIDGE_INVARIANT_SPEC.md`](FIATBRIDGE_INVARIANT_SPEC.md) is the
+**canonical executable specification** for FiatBridge's accounting,
+authorization, queue-ordering, and pause invariants. It numbers each invariant
+(`INV-A1–A3`, `INV-Q1–Q4`, `INV-Z1–Z3`, `INV-P1–P3`, `INV-C1–C2`, `INV-E1`),
+documents the token-behavior and ledger-time assumptions they depend on, and
+contains a coverage matrix mapping every test module to the invariants it
+asserts. Update that document whenever a new invariant or test module is added.
+
 ### Registered invariant modules
 
 Each of these is declared in `lib.rs` behind `#[cfg(test)]`:
@@ -117,6 +127,7 @@ Each of these is declared in `lib.rs` behind `#[cfg(test)]`:
 | `test_set_circuit_breaker_reset_window_invariants` | circuit breaker auto-reset window |
 | `test_migrate_escrow_invariants` | escrow storage migration |
 | `test_get_deploy_config_hash_invariants` | read-only deployment config hash |
+| `test_withdrawal_lifecycle_model` | stateful model-based withdrawal lifecycle (Issue #173) |
 
 `lib.rs` also registers other test modules that are not invariant suites,
 such as `test`, `test_init_validation`, `test_heartbeat_batch` and
@@ -300,6 +311,35 @@ uploaded hash. The boundary tests therefore assert that the call is no longer
 refused *by the timelock*, rather than depending on the SDK's version-pinned
 doctest WASM fixture. `test::test_execute_upgrade_after_delay_succeeds` covers
 the full success path where that fixture is available.
+
+### Withdrawal Lifecycle Model (`test_withdrawal_lifecycle_model.rs`)
+
+A stateful model-based harness introduced in Issue #173. It maintains a
+`LifecycleModel` reference model alongside the live contract and asserts, after
+every generated operation, that:
+
+- The model and the contract agree on `total_deposited`, `total_withdrawn`,
+  `total_liabilities`, queue depth, each active request's recipient and
+  remaining amount, and cancellation status/snapshot (model consistency).
+- All three core accounting invariants hold (INV-A1–A3).
+- The ordered FiatBridge event names emitted since setup agree with the
+  model's expected outcomes, including the two deposit events and the two
+  events emitted on cancellation finalization.
+- Request IDs are strictly monotonic and never recycled across any combination
+  of full execution, partial execution, three-step cancellation, shortcut
+  cancellation, and expiry reclaim (INV-Q1).
+- Queue depth changes by exactly one per enqueue / dequeue (INV-Q2).
+- The cancellation state machine advances only Requested → Approved → (deleted)
+  and returns typed errors for out-of-sequence calls (INV-C1).
+- Orphan cancellation records are preserved after terminal queue removal, and
+  finalization of an orphan returns `RequestNotFound`.
+- Liabilities do not change before finalization (INV-C2).
+- Reclaim before the expiry window returns `WithdrawalLocked` (INV-E1).
+- Rejected calls leave no partial state (INV-Z3).
+
+The property tests generate sequences of up to 24 operations (deposits,
+requests, executions, cancellations, reclaims, ledger advances) and repeat the
+full invariant check after each step.
 
 ---
 

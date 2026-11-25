@@ -2105,6 +2105,21 @@ impl FiatBridge {
     /// permits "extra" untracked balance, such as accrued fees that have not
     /// yet been withdrawn.
     ///
+    /// **Token-behavior assumptions**: The comparison relies on
+    /// `token.balance()` returning the exact amount of tokens held by this
+    /// contract with no fee-on-transfer deduction or rebase adjustment. If the
+    /// token charges a fee on transfer, invariant 3 may be violated immediately
+    /// after an outbound transfer; `execute_withdrawal` guards against this
+    /// with explicit pre/post balance checks (`ShortTransfer` / `TransferFailed`).
+    ///
+    /// **Ledger-time assumptions**: This function uses no time-dependent logic;
+    /// the `sequence()` clock is only read by timelocks and expiry guards in
+    /// the calling entry points, not here.
+    ///
+    /// See [`docs/FIATBRIDGE_INVARIANT_SPEC.md`](docs/FIATBRIDGE_INVARIANT_SPEC.md)
+    /// for the complete numbered invariant list (INV-A1 through INV-A3), their
+    /// assumptions, and the test-to-invariant coverage matrix.
+    ///
     /// See [`docs/INVARIANT_TESTING.md`](docs/INVARIANT_TESTING.md) for the
     /// full testing strategy.
     fn check_invariants(env: &Env, token_addr: &Address) -> Result<(), Error> {
@@ -9556,3 +9571,7 @@ mod test_aging_fairness;
 
 #[cfg(test)]
 mod test_resource_budgets_worst_case;
+
+// Issue #172 / #173: FiatBridge invariant specification and withdrawal lifecycle model tests.
+#[cfg(test)]
+mod test_withdrawal_lifecycle_model;
